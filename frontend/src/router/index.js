@@ -9,6 +9,8 @@ import AdminDashboard from '../components/AdminDashboard.vue'
 import AdminLots from '../components/AdminLots.vue'
 import AdminUsers from '../components/AdminUsers.vue'
 import LotStatus from '../components/LotStatus.vue'
+import AdminSummary from '../components/AdminSummary.vue' // newly added summary page
+import LotSpots from '../components/LotSpots.vue' // new
 
 const routes = [
   { path: '/', component: Login },
@@ -19,10 +21,14 @@ const routes = [
   { path: '/admin', component: AdminDashboard },
   { path: '/admin/lots', component: AdminLots },
   { path: '/admin/users', component: AdminUsers },
-  { path: '/admin/status', component: LotStatus }
+  { path: '/admin/status', component: LotStatus },
+  { path: '/admin/summary', component: AdminSummary, meta: { requiresAuth: true, requiresAdmin: true } },
+  { path: '/admin/lots/:id/spots', component: LotSpots, meta: { requiresAuth: true, requiresAdmin: true } }
 ]
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+export default router

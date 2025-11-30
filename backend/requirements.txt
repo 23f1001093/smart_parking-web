@@ -6,3 +6,6 @@ Werkzeug
 redis
 celery
 python-dotenv
+flask_migrate
+Flask-Mail
+Flask-Migrate

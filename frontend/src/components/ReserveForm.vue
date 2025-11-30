@@ -19,20 +19,30 @@ const loading = ref(false)
 async function reserve() {
   loading.value = true
   error.value = ''
-  const res = await fetch(`/api/parkinglots/${props.lot.id}/reserve`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ vehicle_number: vehicle_number.value, remarks: remarks.value })
-  })
-  if (res.ok) {
-    emit('success')
-    vehicle_number.value = ''
-    remarks.value = ''
-  } else {
-    const data = await res.json()
-    error.value = data.message || 'Reservation failed'
+  try {
+    const res = await fetch(`/api/parkinglots/${props.lot.id}/reserve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ vehicle_number: vehicle_number.value, remarks: remarks.value })
+    })
+
+    const text = await res.text()
+    let data = null
+    try { data = text ? JSON.parse(text) : null } catch (e) {}
+
+    if (res.ok) {
+      emit('success')
+      vehicle_number.value = ''
+      remarks.value = ''
+    } else {
+      error.value = (data && data.message) || text || res.statusText || 'Reservation failed'
+    }
+  } catch (e) {
+    console.error('reserve error', e)
+    error.value = 'Network error'
+  } finally {
+    loading.value = false
   }
-  loading.value = false
 }
 </script>

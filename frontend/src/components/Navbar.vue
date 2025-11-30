@@ -1,7 +1,7 @@
 <template>
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
     <div class="container">
-      <a class="navbar-brand" href="#">Smart Parking</a>
+      <router-link class="navbar-brand" to="/">Smart Parking</router-link>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -20,7 +20,7 @@
             <router-link class="nav-link" to="/user">User Dashboard</router-link>
           </li>
           <li v-if="isLoggedIn" class="nav-item">
-            <a class="nav-link" href="#" @click="handleLogout">Logout</a>
+            <a class="nav-link" href="#" @click.prevent="handleLogout">Logout</a>
           </li>
         </ul>
       </div>
@@ -29,24 +29,60 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { apiGet, apiPost } from '../utils/api'
 
 const router = useRouter()
 const isLoggedIn = ref(false)
 const isAdmin = ref(false)
 
-// Dummy logic; connect this to your actual auth/session logic!
-function checkAuth() {
+async function refreshAuth() {
+  // Try to get authoritative user from backend; fallback to localStorage role
+  try {
+    const user = await apiGet('/me')
+    if (user) {
+      isLoggedIn.value = true
+      isAdmin.value = user.role === 'admin'
+      try { localStorage.setItem('role', user.role) } catch (e) {}
+      return
+    }
+  } catch (e) {
+    // ignore and fall back to localStorage below
+  }
   const role = localStorage.getItem('role')
   isLoggedIn.value = !!role
   isAdmin.value = role === 'admin'
 }
-function handleLogout() {
-  localStorage.removeItem('role')
+
+async function handleLogout() {
+  try {
+    await apiPost('/logout', {}) // clear server-side session
+  } catch (e) {
+    // ignore network errors; still clear client state
+    console.warn('Logout request failed', e)
+  }
+  try { localStorage.removeItem('role') } catch (e) {}
   isLoggedIn.value = false
   isAdmin.value = false
   router.push('/')
 }
-checkAuth()
+
+// keep navbar state in sync across tabs
+function onStorage() {
+  refreshAuth()
+}
+
+onMounted(() => {
+  refreshAuth()
+  window.addEventListener('storage', onStorage)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('storage', onStorage)
+})
 </script>
+
+<style scoped>
+.navbar-brand { font-weight: 600; }
+</style>

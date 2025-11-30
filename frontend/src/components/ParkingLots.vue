@@ -18,6 +18,7 @@
         </div>
       </div>
     </div>
+    <div v-if="error" class="alert alert-danger mt-2">{{ error }}</div>
   </div>
 </template>
 
@@ -25,9 +26,27 @@
 import { ref, onMounted } from 'vue'
 import ReserveForm from './ReserveForm.vue'
 const lots = ref([])
+const error = ref('')
+
 async function fetchLots() {
-  const res = await fetch('/api/parkinglots', { credentials: 'include' })
-  lots.value = await res.json()
+  error.value = ''
+  try {
+    const res = await fetch('/api/parkinglots', { credentials: 'include' })
+    const text = await res.text()
+    let data = null
+    try { data = text ? JSON.parse(text) : null } catch (e) {}
+
+    if (res.ok) {
+      // backend sends available_spots in each lot in your routes; if not, compute here
+      lots.value = Array.isArray(data) ? data : []
+    } else {
+      error.value = (data && data.message) || text || res.statusText || 'Failed to load parking lots'
+    }
+  } catch (e) {
+    console.error('fetch lots error', e)
+    error.value = 'Network error'
+  }
 }
+
 onMounted(fetchLots)
 </script>

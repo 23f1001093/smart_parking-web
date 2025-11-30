@@ -1,10 +1,12 @@
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, current_app
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User, ParkingLot, ParkingSpot, Reservation
 from functools import wraps
 from datetime import datetime
+import json
 
 api = Blueprint('api', __name__)
+
 
 def admin_required(f):
     @wraps(f)
@@ -22,31 +24,79 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# Debug endpoint to inspect proxied requests
+@api.route('/debug/proxy', methods=['GET', 'POST', 'OPTIONS'])
+def debug_proxy():
+    info = {
+        'remote_addr': request.remote_addr,
+        'method': request.method,
+        'host_header': request.headers.get('Host'),
+        'origin': request.headers.get('Origin'),
+        'referer': request.headers.get('Referer'),
+        'cookie_header': request.headers.get('Cookie'),
+        'content_type': request.headers.get('Content-Type'),
+        'all_headers': dict(request.headers)
+    }
+    if request.method == 'POST':
+        try:
+            info['body_text'] = request.get_data(as_text=True)
+        except Exception as e:
+            info['body_text'] = f'error reading body: {e}'
+    current_app.logger.info("debug_proxy: %s", info)
+    return jsonify(info), 200
+
 # --- Authentication ---
 @api.route('/register', methods=['POST'])
 def register():
-    data = request.json
+    data = request.json or {}
     email = data.get('email')
     password = data.get('password')
     username = data.get('username')
+
+    if not email or not password or not username:
+        return jsonify({'message': 'username, email and password are required'}), 400
+
     if User.query.filter_by(email=email).first():
         return jsonify({'message': 'Email already taken'}), 409
-    hashed_password = generate_password_hash(password, method='scrypt')
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'message': 'Username already taken'}), 409
+
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
     new_user = User(email=email, password_hash=hashed_password, username=username, role='user')
     db.session.add(new_user)
     db.session.commit()
     return jsonify({'message': 'Registration successful'}), 201
 
+# Enhanced login route with debug logging (temporary)
 @api.route('/login', methods=['POST'])
 def login():
-    data = request.json
+    current_app.logger.info("=== LOGIN DEBUG START ===")
+    current_app.logger.info("Remote addr: %s", request.remote_addr)
+    current_app.logger.info("Host header: %s", request.headers.get('Host'))
+    current_app.logger.info("Origin header: %s", request.headers.get('Origin'))
+    current_app.logger.info("Content-Type header: %s", request.headers.get('Content-Type'))
+    current_app.logger.info("All headers: %s", dict(request.headers))
+    try:
+        current_app.logger.info("Raw body: %s", request.get_data(as_text=True))
+    except Exception as e:
+        current_app.logger.info("Error reading body: %s", e)
+
+    data = request.json or {}
     email = data.get('email')
     password = data.get('password')
+    current_app.logger.info("Parsed JSON email: %s, password present: %s", email, bool(password))
+
     user = User.query.filter_by(email=email).first()
     if user and check_password_hash(user.password_hash, password):
         session['user_id'] = user.id
         session['user_role'] = user.role
+        current_app.logger.info("Login successful for user id %s", user.id)
+        current_app.logger.info("=== LOGIN DEBUG END ===")
         return jsonify({'message': 'Login successful', 'user_id': user.id, 'role': user.role}), 200
+
+    current_app.logger.info("Login failed (invalid credentials)")
+    current_app.logger.info("=== LOGIN DEBUG END ===")
     return jsonify({'message': 'Invalid credentials'}), 401
 
 @api.route('/logout', methods=['POST'])
@@ -58,6 +108,8 @@ def logout():
 @login_required
 def get_current_user():
     user = User.query.get(session['user_id'])
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
     return jsonify(user.serialize()), 200
 
 # --- Admin: Parking Lot Management ---
@@ -70,7 +122,12 @@ def list_parking_lots():
 @api.route('/admin/parkinglots', methods=['POST'])
 @admin_required
 def create_parking_lot():
-    data = request.json
+    data = request.json or {}
+    required = ['prime_location_name', 'price', 'number_of_spots']
+    for r in required:
+        if r not in data:
+            return jsonify({'message': f'{r} is required'}), 400
+
     lot = ParkingLot(
         prime_location_name=data['prime_location_name'],
         address=data.get('address'),
@@ -90,7 +147,7 @@ def create_parking_lot():
 @admin_required
 def edit_parking_lot(lot_id):
     lot = ParkingLot.query.get_or_404(lot_id)
-    data = request.json
+    data = request.json or {}
     if 'prime_location_name' in data:
         lot.prime_location_name = data['prime_location_name']
     if 'address' in data:
@@ -103,6 +160,7 @@ def edit_parking_lot(lot_id):
         current_occupied = ParkingSpot.query.filter_by(lot_id=lot.id, status='O').count()
         if current_occupied > 0:
             return jsonify({'message': 'Cannot change spot count while spots are occupied'}), 400
+        # Remove existing spots and recreate to match new count
         ParkingSpot.query.filter_by(lot_id=lot.id).delete()
         db.session.flush()
         for _ in range(data['number_of_spots']):
@@ -201,7 +259,8 @@ def release_spot(reservation_id):
         return jsonify({'message': 'Already released'}), 400
     reservation.leaving_timestamp = datetime.utcnow()
     spot = ParkingSpot.query.get(reservation.spot_id)
-    spot.status = 'A'
+    if spot:
+        spot.status = 'A'
     db.session.commit()
     return jsonify({'message': 'Spot released'}), 200
 
@@ -213,18 +272,18 @@ def get_user_reservations():
     return jsonify([r.serialize() for r in reservations]), 200
 
 # --- Async Export Example using Celery batch job ---
-from tasks import export_user_reservations
 @api.route('/my/export', methods=['POST'])
 @login_required
 def trigger_export():
     user_id = session['user_id']
     email = request.json.get("email")
+    from tasks import export_user_reservations
     export_user_reservations.delay(user_id, email)
     return jsonify({'message': 'Your export job has started. You will receive an alert when done.'}), 202
 
 # --- Simple Caching Example ---
 import redis
-r = redis.StrictRedis(host='localhost', port=6379, db=1)
+r = redis.StrictRedis(host='localhost', port=6379, db=1, decode_responses=True)
 
 @api.route('/cached/parkinglots', methods=['GET'])
 @login_required
@@ -232,9 +291,13 @@ def cached_lots():
     cache_key = "parkinglots"
     cached = r.get(cache_key)
     if cached:
-        return jsonify(eval(cached.decode('utf-8')))
+        try:
+            return jsonify(json.loads(cached)), 200
+        except Exception:
+            # fallback, continue to rebuild cache
+            pass
     lots = ParkingLot.query.all()
     out = [lot.serialize() for lot in lots]
-    r.setex(cache_key, 30, str(out))
+    # Store JSON string safely instead of using eval
+    r.setex(cache_key, 30, json.dumps(out))
     return jsonify(out), 200
-

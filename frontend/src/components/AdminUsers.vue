@@ -1,7 +1,10 @@
 <template>
   <div class="container py-3">
     <h3>All Registered Users</h3>
-    <table class="table table-striped">
+
+    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+
+    <table class="table table-striped" v-if="users.length">
       <thead>
         <tr>
           <th>UserID</th>
@@ -17,14 +20,27 @@
         </tr>
       </tbody>
     </table>
+
+    <div v-else class="text-muted">No users found or loading...</div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { apiGet } from '../utils/api'
+
 const users = ref([])
-onMounted(async () => {
-  const res = await fetch('/api/admin/users', { credentials: 'include' })
-  users.value = await res.json()
-})
+const error = ref('')
+
+async function fetchUsers() {
+  error.value = ''
+  try {
+    const data = await apiGet('/admin/users')
+    users.value = Array.isArray(data) ? data : []
+  } catch (e) {
+    error.value = e.message || 'Failed to load users'
+  }
+}
+
+onMounted(fetchUsers)
 </script>
