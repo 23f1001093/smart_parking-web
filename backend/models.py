@@ -5,13 +5,17 @@ from datetime import datetime
 
 class User(db.Model):
     __tablename__ = 'users'
+    __table_args__ = {"extend_existing": True}  # <--- This prevents duplicate table errors
+
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
     role = db.Column(db.String(20), default='user')  # 'admin' or 'user'
     reservations = db.relationship('Reservation', back_populates='user', lazy=True)
-
+    # In your User model
+   
     def serialize(self):
         return {
             'id': self.id,
@@ -22,6 +26,9 @@ class User(db.Model):
 
 class ParkingLot(db.Model):
     __tablename__ = 'parking_lot'
+    __table_args__ = {"extend_existing": True}  # <--- This prevents duplicate table errors
+
+
     id = db.Column(db.Integer, primary_key=True)
     prime_location_name = db.Column(db.String(120), nullable=False)
     address = db.Column(db.String(200))
@@ -44,6 +51,9 @@ class ParkingLot(db.Model):
 
 class ParkingSpot(db.Model):
     __tablename__ = 'parking_spot'
+    __table_args__ = {"extend_existing": True}  # <--- This prevents duplicate table errors
+
+
     id = db.Column(db.Integer, primary_key=True)
     lot_id = db.Column(db.Integer, db.ForeignKey('parking_lot.id'), nullable=False)
     status = db.Column(db.String(1), default='A')  # 'A' = Available, 'O' = Occupied
@@ -61,6 +71,9 @@ class ParkingSpot(db.Model):
 
 class Reservation(db.Model):
     __tablename__ = 'reservation'
+    __table_args__ = {"extend_existing": True}  # <--- This prevents duplicate table errors
+
+
     id = db.Column(db.Integer, primary_key=True)
     spot_id = db.Column(db.Integer, db.ForeignKey('parking_spot.id'))
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'))

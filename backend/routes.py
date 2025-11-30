@@ -4,8 +4,10 @@ from models import db, User, ParkingLot, ParkingSpot, Reservation
 from functools import wraps
 from datetime import datetime
 import json
-
+from flask import send_from_directory
+import os
 api = Blueprint('api', __name__)
+
 
 
 def admin_required(f):
@@ -301,3 +303,8 @@ def cached_lots():
     # Store JSON string safely instead of using eval
     r.setex(cache_key, 30, json.dumps(out))
     return jsonify(out), 200
+
+@api.route("/download/<filename>")
+def download_file(filename):
+    export_dir = os.path.join(current_app.root_path, "..", "exports")
+    return send_from_directory(export_dir, filename, as_attachment=True)
